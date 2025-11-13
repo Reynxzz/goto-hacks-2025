@@ -1,5 +1,6 @@
 """Core crew orchestration for documentation generation"""
 import json
+import re
 from typing import Dict, Optional, List
 from crewai import Agent, Task, Crew, Process
 
@@ -17,6 +18,46 @@ from src.utils.logger import setup_logger
 from src.utils.validators import validate_gitlab_project, sanitize_filename
 
 logger = setup_logger(__name__)
+
+
+def extract_markdown_from_response(response: str) -> str:
+    """
+    Extract and clean markdown content from various response formats.
+
+    Handles:
+    - JSON responses with markdown content
+    - Markdown wrapped in code blocks
+    - Raw markdown text
+
+    Args:
+        response: The raw response string from the agent
+
+    Returns:
+        Clean markdown text
+    """
+    content = response.strip()
+
+    # Try to parse as JSON first
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict):
+            # Look for markdown content in common keys
+            for key in ["markdown_documentation", "documentation", "content", "markdown"]:
+                if key in data and data[key]:
+                    content = data[key]
+                    break
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Remove markdown code blocks if present
+    if content.startswith('```markdown') or content.startswith('```md'):
+        content = re.sub(r'^```(?:markdown|md)\s*\n', '', content)
+        content = re.sub(r'\n```\s*$', '', content)
+    elif content.startswith('```'):
+        content = re.sub(r'^```\s*\n', '', content)
+        content = re.sub(r'\n```\s*$', '', content)
+
+    return content.strip()
 
 
 class DocumentationCrew:
@@ -215,30 +256,61 @@ class DocumentationCrew:
         """Create a task for writing documentation based on fetched data."""
         return Task(
             description=(
-                f'TASK: Generate comprehensive documentation for the GitLab project "{project}" '
+                f'TASK: Generate comprehensive Markdown documentation for the GitLab project "{project}" '
                 f'based on the data provided by previous agents.\n\n'
                 f'STEPS:\n'
-                f'1. Review all project data provided by the previous agents\n'
-                f'2. Create a comprehensive JSON document with these sections:\n'
-                f'   - overview: {{name, description, purpose, default_branch, visibility, license}}\n'
-                f'   - features: [list of key features]\n'
-                f'   - tech_stack: {{topics, dependencies}}\n'
-                f'   - structure: {{main_files: [files with descriptions]}}\n'
-                f'   - activity: {{stars, forks, open_issues, last_activity}}\n'
-                f'   - getting_started: {{installation, usage, project_url}}\n\n'
-                f'IMPORTANT: Return ONLY the JSON object, no markdown code blocks, no extra text. '
-                f'Start your response directly with {{.'
+                f'1. Review all project data provided by the previous agents (GitLab, Google Drive, RAG)\n'
+                f'2. Create a comprehensive Markdown document with these sections:\n\n'
+                f'## Required Markdown Structure:\n\n'
+                f'# [Project Name]\n\n'
+                f'## Overview\n'
+                f'- Project description and purpose\n'
+                f'- Default branch, visibility, license\n'
+                f'- Project URL: [Link to GoLabs]\n\n'
+                f'## Recent Contributors\n'
+                f'- List of recent commit authors with their latest contributions\n'
+                f'- Include commit titles and dates\n\n'
+                f'## Project Structure\n'
+                f'- List main directories and files\n'
+                f'- Include GoLabs file links (format: https://source.golabs.io/[project]/-/blob/[branch]/[filepath])\n'
+                f'- Brief description of each component\n\n'
+                f'## Reference Documentation (if available from Google Drive)\n'
+                f'- List Google Drive documents with clickable links\n'
+                f'- Include brief summary of each document\n'
+                f'- Use format: [Document Name](gdrive_uri)\n\n'
+                f'## Internal Knowledge Base (if available)\n'
+                f'- Relevant information from internal systems\n'
+                f'- Context about how this project relates to company infrastructure\n\n'
+                f'## Activity & Metrics\n'
+                f'- Stars, forks, open issues\n'
+                f'- Last activity date\n'
+                f'- Recent commit summary\n\n'
+                f'## Getting Started\n'
+                f'- Installation instructions (based on README and project files)\n'
+                f'- Usage examples\n'
+                f'- Configuration details\n\n'
+                f'IMPORTANT:\n'
+                f'- Use proper Markdown formatting with headers, lists, and links\n'
+                f'- Make all URLs clickable using [text](url) format\n'
+                f'- Include actual contributor names from commit data\n'
+                f'- Create proper file links to GoLabs for key files\n'
+                f'- If Google Drive or RAG data is available, include it in separate sections\n'
+                f'- Write clear, professional technical documentation\n'
+                f'- DO NOT wrap the markdown in JSON format\n'
+                f'- DO NOT use code blocks (```)\n'
+                f'- Return ONLY the raw markdown text starting with # header\n'
             ),
             expected_output=(
-                'A valid, complete JSON object (not wrapped in markdown code blocks) following this structure:\n'
-                '{\n'
-                '  "overview": {"name": "...", "description": "...", "purpose": "...", "default_branch": "...", "visibility": "...", "license": "..."},\n'
-                '  "features": ["feature1", "feature2"],\n'
-                '  "tech_stack": {"topics": [], "dependencies": "..."},\n'
-                '  "structure": {"main_files": [{"name": "...", "purpose": "..."}]},\n'
-                '  "activity": {"stars": 0, "forks": 0, "open_issues": 0, "last_activity": "..."},\n'
-                '  "getting_started": {"installation": "...", "usage": "...", "project_url": "..."}\n'
-                '}'
+                'A complete Markdown document with:\n'
+                '- Clear section headers (# and ##)\n'
+                '- Project overview with metadata\n'
+                '- Recent contributors list with names and commit details\n'
+                '- File structure with clickable GoLabs links\n'
+                '- Reference documentation links (if available from Google Drive)\n'
+                '- Internal knowledge base insights (if available)\n'
+                '- Activity metrics and statistics\n'
+                '- Getting started guide\n'
+                '- All links properly formatted as [text](url)\n'
             ),
             agent=agent
         )
@@ -313,36 +385,23 @@ class DocumentationCrew:
         logger.info("Executing crew...")
         result = crew.kickoff()
 
-        # Parse result as JSON
-        try:
-            result_str = str(result)
+        # Convert result to string and extract markdown
+        result_str = str(result)
+        markdown_content = extract_markdown_from_response(result_str)
 
-            # Strip markdown code blocks if present
-            if result_str.strip().startswith('```'):
-                start = result_str.find('\n')
-                end = result_str.rfind('```')
-                if start != -1 and end != -1:
-                    result_str = result_str[start+1:end].strip()
-
-            doc_json = json.loads(result_str)
-            logger.info("Successfully parsed documentation as JSON")
-            return doc_json
-
-        except json.JSONDecodeError as e:
-            logger.warning(f"Could not parse result as JSON: {e}")
-            return {
-                "project": project,
-                "documentation": str(result),
-                "format": "text",
-                "note": "Documentation could not be parsed as JSON, returning as text"
-            }
+        logger.info("Successfully generated Markdown documentation")
+        return {
+            "project": project,
+            "documentation": markdown_content,
+            "format": "markdown"
+        }
 
     def save_documentation(self, documentation: Dict, output_file: Optional[str] = None) -> str:
         """
-        Save documentation to a JSON file.
+        Save documentation to a Markdown file.
 
         Args:
-            documentation: Documentation dictionary
+            documentation: Documentation dictionary with 'documentation' and 'format' keys
             output_file: Output file path (optional, auto-generated if not provided)
 
         Returns:
@@ -351,10 +410,15 @@ class DocumentationCrew:
         if not output_file:
             project = documentation.get("project", "unknown")
             safe_project = sanitize_filename(project.replace('/', '_'))
-            output_file = f"documentation_{safe_project}.json"
+            doc_format = documentation.get("format", "markdown")
+            extension = ".md" if doc_format == "markdown" else ".txt"
+            output_file = f"documentation_{safe_project}{extension}"
+
+        # Get the documentation content
+        content = documentation.get("documentation", "")
 
         with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(documentation, f, indent=2, ensure_ascii=False)
+            f.write(content)
 
         logger.info(f"Documentation saved to {output_file}")
         return output_file
