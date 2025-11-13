@@ -205,7 +205,7 @@ st.markdown("""
 
 # Header
 st.markdown('<div class="main-header">NoBuddy - Your Onboarding Buddy</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Your team’s knowledge, instantly searchable for easy project onboarding. Turns "nobody knows" into "NoBuddy knows"</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Your team’s knowledge, instantly searchable for easy project onboarding. Turns "nobody knows" into "NoBuddy knows".</div>', unsafe_allow_html=True)
 st.markdown('<div class="header-line"></div>', unsafe_allow_html=True)
 
 # Login page - shown if not authenticated
