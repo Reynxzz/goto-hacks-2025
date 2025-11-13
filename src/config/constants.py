@@ -25,34 +25,8 @@ class ToolName(str, Enum):
     RAG_TOOL = "Internal Knowledge Base Search"
 
 
-class RAGCollection(str, Enum):
-    """RAG Milvus collection names"""
-    USER_INCOME = "user_income"
-    USER_OCCUPATION = "user_occupation"
-    DGE = "dge"
-    GENIE = "genie"
-    PUSH_NOTIFICATIONS = "pn_push_notifications"
-    PILLS = "pills"
-
-
-# Collection name mappings for RAG
-RAG_COLLECTION_DISPLAY_NAMES: List[str] = [
-    "USER INCOME",
-    "USER OCCUPATION",
-    "DGE",
-    "GENIE",
-    "PN - PUSH NOTIFICATIONS",
-    "PILLS"
-]
-
-RAG_COLLECTION_INTERNAL_NAMES: List[str] = [
-    RAGCollection.USER_INCOME.value,
-    RAGCollection.USER_OCCUPATION.value,
-    RAGCollection.DGE.value,
-    RAGCollection.GENIE.value,
-    RAGCollection.PUSH_NOTIFICATIONS.value,
-    RAGCollection.PILLS.value,
-]
+# RAG Milvus collection name (single combined collection)
+RAG_COLLECTION_NAME = "combined_item"
 
 # Default values
 DEFAULT_TEMPERATURE_TOOL_CALLING = 0.3

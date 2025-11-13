@@ -56,6 +56,12 @@ class GitLabMCPTool(BaseTool):
         Returns:
             JSON string with project information
         """
+        logger.info("=" * 80)
+        logger.info("📊 GITLAB PROJECT ANALYZER TOOL CALLED")
+        logger.info(f"Project: {project}")
+        logger.info("This is the GitLab tool, NOT the Internal Knowledge Base Search tool!")
+        logger.info("=" * 80)
+
         if not validate_gitlab_project(project):
             error_msg = f"Invalid project format: {project}. Expected format: namespace/project"
             logger.error(error_msg)

@@ -6,12 +6,10 @@ from typing import Any, Dict, List, Type
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 from pymilvus import MilvusClient
-from rapidfuzz import fuzz
 
 from src.config.settings import get_settings
 from src.config.constants import (
-    RAG_COLLECTION_DISPLAY_NAMES,
-    RAG_COLLECTION_INTERNAL_NAMES,
+    RAG_COLLECTION_NAME,
     DEFAULT_RAG_TOP_K,
     DEFAULT_EMBEDDING_TIMEOUT
 )
@@ -29,16 +27,22 @@ class RAGMilvusTool(BaseTool):
     """
     Tool for searching internal knowledge base using semantic search.
 
-    Uses Milvus vector database for similarity search across multiple collections
-    including user income, DGE, Genie, and other internal documentation.
+    Uses Milvus vector database with a single 'combined_item' collection
+    containing data from multiple sources (user_income, user_occupation, dge,
+    genie, push_notifications, pills, etc.). Results include source metadata.
     """
 
     name: str = "Internal Knowledge Base Search"
     description: str = (
-        "Searches the internal knowledge base using semantic search. "
-        "Useful for finding relevant information about user income, user occupation, "
-        "DGE, Genie, push notifications, and pills. "
-        "Input should be a natural language query about any of these topics."
+        "⚠️ THIS IS NOT THE GITLAB TOOL ⚠️\n"
+        "Searches the internal knowledge base using semantic search (NOT GitLab repositories). "
+        "The database contains a 'combined_item' collection with data from multiple sources. "
+        "Results include text content and source field (e.g., user_income, dge, genie, pills). "
+        "This tool returns knowledge base articles, NOT project files or commits. "
+        "Useful for finding relevant information about user segments, data engineering, "
+        "experimentation platforms (Genie), and internal tools. "
+        "Input should be a natural language query about these topics. "
+        "Output format: JSON with 'sources_found' and 'results' containing 'source' fields."
     )
     args_schema: Type[BaseModel] = RAGMilvusToolSchema
 
@@ -79,12 +83,6 @@ class RAGMilvusTool(BaseTool):
             **kwargs
         )
 
-        # Create class mapping dictionary (store as instance attribute)
-        object.__setattr__(
-            self,
-            '_class_mapping_dict',
-            dict(zip(RAG_COLLECTION_DISPLAY_NAMES, RAG_COLLECTION_INTERNAL_NAMES))
-        )
         object.__setattr__(self, '_initialized', False)
         object.__setattr__(self, '_client', None)
 
@@ -108,43 +106,6 @@ class RAGMilvusTool(BaseTool):
     def is_available(self) -> bool:
         """Check if RAG tool is available."""
         return getattr(self, '_initialized', False)
-
-    def _mapping_group(self, string_to_check: str) -> str:
-        """
-        Map query to the most relevant collection using fuzzy matching.
-
-        Args:
-            string_to_check: Query string to map
-
-        Returns:
-            Collection name in lowercase format
-        """
-        query = string_to_check.upper()
-        query_words = query.split()
-        final_results = []
-
-        for item in RAG_COLLECTION_DISPLAY_NAMES:
-            # Compute partial_ratio for full query
-            full_score = fuzz.partial_ratio(query, item)
-
-            # Compute score for each word in query, take the highest
-            word_scores = [fuzz.partial_ratio(word, item) for word in query_words]
-            max_word_score = max(word_scores) if word_scores else 0
-
-            # Take the higher of full_score vs max_word_score
-            final_score = max(full_score, max_word_score)
-            final_results.append((item, final_score))
-
-        # Sort results by score descending
-        final_results.sort(key=lambda x: x[1], reverse=True)
-
-        # Return the mapped collection name
-        top_item = final_results[0][0]
-        class_mapping = getattr(self, '_class_mapping_dict', {})
-        mapped_name = class_mapping[top_item]
-
-        logger.debug(f"Mapped query to collection: {mapped_name} (score: {final_results[0][1]})")
-        return mapped_name
 
     def _generate_embedding(self, text: str) -> List[float]:
         """
@@ -187,12 +148,21 @@ class RAGMilvusTool(BaseTool):
         """
         Search the knowledge base for relevant information.
 
+        The database uses a single 'combined_item' collection with a 'source' field
+        to indicate the origin of each document.
+
         Args:
             query: Natural language search query
 
         Returns:
-            JSON string with search results
+            JSON string with search results including text and source information
         """
+        logger.info("=" * 80)
+        logger.info("🔍 INTERNAL KNOWLEDGE BASE SEARCH TOOL CALLED")
+        logger.info(f"Query: {query}")
+        logger.info("This is the RAG tool, NOT the GitLab tool!")
+        logger.info("=" * 80)
+
         if not self.is_available():
             error_msg = "RAG Milvus tool not available. Check database path and initialization."
             logger.error(error_msg)
@@ -201,39 +171,44 @@ class RAGMilvusTool(BaseTool):
         try:
             logger.info(f"Searching knowledge base for: {query}")
 
-            # Map query to collection
-            collection_name = self._mapping_group(query)
-            logger.info(f"Searching collection: {collection_name}")
-
             # Generate embedding for query
             query_vector = self._generate_embedding(query)
 
-            # Search Milvus
+            # Get Milvus client
             client = getattr(self, '_client', None)
             if not client:
                 raise RuntimeError("Milvus client not initialized")
 
+            # Search the combined collection
+            logger.info(f"Searching collection: {RAG_COLLECTION_NAME}")
             search_results = client.search(
-                collection_name=collection_name,
+                collection_name=RAG_COLLECTION_NAME,
                 data=[query_vector],
                 limit=self.top_k,
-                output_fields=["text"]
+                output_fields=["text", "source"]  # Include source field
             )
 
             # Format results
             results = []
+            sources = set()
+
             for hit in search_results[0]:
+                source = hit["entity"].get("source", "N/A")
+                sources.add(source)
+
                 results.append({
                     "score": float(hit["distance"]),
                     "text": hit["entity"]["text"],
-                    "collection": collection_name
+                    "source": source
                 })
 
-            logger.info(f"Found {len(results)} results in collection {collection_name}")
+            logger.info(f"Found {len(results)} results from {len(sources)} different sources")
+
             return json.dumps({
                 "query": query,
-                "collection_searched": collection_name,
+                "collection": RAG_COLLECTION_NAME,
                 "results_count": len(results),
+                "sources_found": sorted(list(sources)),
                 "results": results
             }, indent=2)
 

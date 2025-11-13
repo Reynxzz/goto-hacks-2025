@@ -68,9 +68,9 @@ class RAGConfig:
     @classmethod
     def from_env(cls) -> "RAGConfig":
         return cls(
-            db_path=os.getenv("MILVUS_DB_PATH", "./milvus_demo_batch_bmth_v1.db"),
+            db_path=os.getenv("MILVUS_DB_PATH", "./milvus_demo_batch_bmth_v3_3.db"),
             embedding_endpoint=os.getenv("EMBEDDING_ENDPOINT", "https://litellm-staging.gopay.sh/embeddings"),
-            embedding_model=os.getenv("EMBEDDING_MODEL", "google/embeddinggemma-300m"),
+            embedding_model=os.getenv("EMBEDDING_MODEL", "GoToCompany/embeddinggemma-300m-gotoai-v1"),
             top_k=int(os.getenv("RAG_TOP_K", "5"))
         )
 
