@@ -1,21 +1,21 @@
-# GitHub Documentation Generator with CrewAI & MCP
+# GitLab Documentation Generator with CrewAI
 
-An AI-powered documentation generator that analyzes GitHub repositories and creates comprehensive documentation in JSON format using CrewAI agents and the Model Context Protocol (MCP).
+An AI-powered documentation generator that analyzes GitLab projects and creates comprehensive documentation in JSON format using CrewAI agents with dual-LLM architecture.
 
 ## Features
 
-- Analyzes GitHub repositories using MCP for standardized data access
+- Analyzes GitLab projects using GitLab REST API
 - Generates structured documentation in JSON format
-- Extracts repository metadata, file structure, and recent activity
-- Uses CrewAI for intelligent documentation generation
+- Extracts project metadata, file structure, and recent activity
+- Uses CrewAI with dual-LLM architecture (gpt-oss + sahabat-4bit)
 - Customizable output format and content
+- Supports self-hosted GitLab instances
 
 ## Prerequisites
 
 - Python 3.10 or higher
-- Node.js (for MCP GitHub server)
-- GitHub Personal Access Token
-- Google AI Studio API Key (for Gemini)
+- GitLab Personal Access Token (with `read_api` scope)
+- Access to GoTo LiteLLM endpoint (gpt-oss and sahabat-4bit models)
 
 ## Installation
 
@@ -44,51 +44,38 @@ cp .env.example .env
 
 Then edit `.env` and add your credentials:
 ```
-GITHUB_TOKEN=your_github_personal_access_token
-GOOGLE_API_KEY=your_google_api_key
+GITLAB_TOKEN=your_gitlab_personal_access_token
+GITLAB_URL=https://source.golabs.io
 ```
 
-### Getting a GitHub Token
+### Getting a GitLab Personal Access Token
 
-1. Go to GitHub Settings > Developer settings > Personal access tokens > Tokens (classic)
-2. Click "Generate new token (classic)"
-3. Give it a name and select scopes: `repo`, `read:user`
-4. Copy the token and add it to your `.env` file
-
-### Getting a Google AI Studio API Key
-
-1. Go to https://aistudio.google.com/app/apikey
-2. Click "Create API Key" or "Get API Key"
-3. Select a Google Cloud project or create a new one
-4. Copy the API key and add it to your `.env` file
+1. Go to your GitLab instance: `https://source.golabs.io/-/user_settings/personal_access_tokens`
+2. Click "Add new token"
+3. Give it a name and select scopes: `read_api`, `read_repository`
+4. Set expiration date as needed
+5. Click "Create personal access token"
+6. Copy the token and add it to your `.env` file
 
 ## Usage
 
 ### Basic Usage
 
-Generate documentation for any public GitHub repository:
+Generate documentation for any GitLab project (public or accessible with your token):
 
 ```bash
-python documentation_agent.py owner/repo
+python documentation_agent.py namespace/project
 ```
 
 Example:
 ```bash
-python documentation_agent.py facebook/react
+python documentation_agent.py gopay-ds/Growth/gopay-dge-ride-model_pipeline-staging
 ```
 
 This will:
-1. Analyze the repository using GitHub API
-2. Generate comprehensive documentation using CrewAI
-3. Save the output to `documentation_owner_repo.json`
-
-### Using the Example Script
-
-Run the example script to see a demonstration:
-
-```bash
-python example.py
-```
+1. Analyze the project using GitLab REST API
+2. Generate comprehensive documentation using CrewAI with dual-LLM architecture
+3. Save the output to `documentation_namespace_project.json`
 
 ### Programmatic Usage
 
@@ -100,8 +87,8 @@ from documentation_agent import DocumentationCrew
 # Create the documentation crew
 doc_crew = DocumentationCrew()
 
-# Generate documentation for a repository
-documentation = doc_crew.generate_documentation("owner/repo")
+# Generate documentation for a GitLab project
+documentation = doc_crew.generate_documentation("namespace/project")
 
 # Save to file
 doc_crew.save_documentation(documentation, "output.json")
@@ -113,26 +100,35 @@ The generated documentation is in JSON format and includes:
 
 ```json
 {
-  "repository": "owner/repo",
   "overview": {
-    "name": "Repository Name",
+    "name": "Project Name",
     "description": "Description",
-    "purpose": "Main purpose"
+    "purpose": "Main purpose",
+    "default_branch": "main",
+    "visibility": "private",
+    "license": "MIT"
   },
   "features": ["Feature 1", "Feature 2"],
   "tech_stack": {
-    "language": "Primary language",
-    "dependencies": []
+    "topics": ["python", "machine-learning"],
+    "dependencies": "..."
   },
   "structure": {
-    "main_components": []
+    "main_files": [
+      {"name": "setup.py", "purpose": "Package setup"},
+      {"name": "src/main.py", "purpose": "Main application"}
+    ]
   },
   "activity": {
-    "recent_commits": []
+    "stars": 0,
+    "forks": 0,
+    "open_issues": 0,
+    "last_activity": "2024-01-15T10:30:00Z"
   },
   "getting_started": {
-    "installation": "",
-    "usage": ""
+    "installation": "...",
+    "usage": "...",
+    "project_url": "https://source.golabs.io/namespace/project"
   }
 }
 ```
@@ -142,9 +138,9 @@ The generated documentation is in JSON format and includes:
 ```
 goto-hacks-2025/
 ├── documentation_agent.py   # Main CrewAI agent implementation
-├── github_mcp_tool.py       # GitHub MCP tool wrapper
-├── example.py               # Example usage script
-├── mcp_config.json          # MCP server configuration
+├── github_mcp_tool.py       # GitLab API tool wrapper
+├── goto_custom_llm.py       # Custom LLM integration for GoTo models
+├── test_gitlab_api.py       # GitLab API validation script
 ├── requirements.txt         # Python dependencies
 ├── .env.example            # Environment variables template
 └── README.md               # This file
@@ -152,48 +148,51 @@ goto-hacks-2025/
 
 ## How It Works
 
-1. **GitHub MCP Tool** (`github_mcp_tool.py`):
-   - Wraps GitHub API access using MCP principles
-   - Fetches repository info, file structure, commits, and README
-   - Provides structured data to the CrewAI agent
+1. **GitLab API Tool** (`github_mcp_tool.py`):
+   - Wraps GitLab REST API access
+   - Fetches project info, file structure, commits, and README
+   - Provides structured data to the CrewAI agents
 
 2. **Documentation Agent** (`documentation_agent.py`):
-   - CrewAI agent specialized in technical documentation powered by Google Gemini 1.5 Pro
-   - Analyzes repository data from the GitHub tool
-   - Generates comprehensive, structured JSON documentation
+   - Two-agent CrewAI system using dual LLM architecture:
+     - **Agent 1 (GitLab Data Analyzer)**: Uses `gpt-oss` (GPT OSS 120B) for tool calling and data fetching
+     - **Agent 2 (Documentation Writer)**: Uses `sahabat-4bit` (Sahabat AI 70B 4-bit) for documentation writing
+   - Analyzes project data and generates comprehensive JSON documentation
 
 3. **Crew Execution**:
-   - Agent receives the task to document a repository
-   - Uses the GitHub tool to gather repository information
-   - Processes and structures the information into JSON
-   - Returns formatted documentation
+   - Sequential process with two specialized agents
+   - Agent 1 fetches all project data using GitLab API
+   - Agent 2 writes structured documentation based on fetched data
+   - Returns formatted JSON documentation
 
 ## Customization
 
-### Modify the LLM Model
+### Modify the LLM Models
 
-Edit `documentation_agent.py` to use a different Gemini model:
+Edit `documentation_agent.py` to use different models or adjust parameters:
 
 ```python
-self.llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-flash",  # or "gemini-1.5-pro", "gemini-pro", etc.
-    google_api_key=os.getenv("GOOGLE_API_KEY"),
-    temperature=0.7,  # Adjust temperature for creativity (0.0-1.0)
-    convert_system_message_to_human=True
+# For data fetching agent (requires tool calling support)
+self.gpt_oss_llm = GoToCustomLLM(
+    model="openai/gpt-oss-120b",
+    endpoint="https://litellm-staging.gopay.sh",
+    temperature=1.0  # Adjust as needed
+)
+
+# For documentation writing agent
+self.sahabat_llm = GoToCustomLLM(
+    model="GoToCompany/Llama-Sahabat-AI-v2-70B-IT-awq-4bit",
+    endpoint="https://litellm-staging.gopay.sh",
+    temperature=0.6  # Lower for more focused output
 )
 ```
 
-Available models:
-- `gemini-1.5-pro` - Most capable model (default)
-- `gemini-1.5-flash` - Faster and more cost-effective
-- `gemini-pro` - Previous generation model
+### Modify the Agents
 
-### Modify the Agent
-
-Edit `documentation_agent.py` to customize the agent's behavior:
+Edit `documentation_agent.py` to customize agent behavior:
 
 ```python
-def create_documentation_agent(self) -> Agent:
+def create_gitlab_analyzer_agent(self) -> Agent:
     return Agent(
         role='Your Custom Role',
         goal='Your custom goal',
@@ -208,28 +207,37 @@ Edit the task description in `create_documentation_task()` to change what inform
 
 ### Add More Tools
 
-Create additional tools in the style of `GitHubMCPTool` and add them to the agent's `tools` list.
+Create additional tools in the style of `GitLabMCPTool` and add them to the analyzer agent's `tools` list.
 
 ## Troubleshooting
 
-### GitHub API Rate Limiting
+### GitLab API Authentication Errors
+
+If you encounter `403 Forbidden` errors:
+- Ensure your `GITLAB_TOKEN` has the correct scopes: `read_api` and `read_repository`
+- Verify the token hasn't expired
+- Check that you have access to the project you're trying to document
+
+### GitLab API Rate Limiting
 
 If you encounter rate limiting:
-- Ensure your `GITHUB_TOKEN` is set in `.env`
-- Wait for the rate limit to reset (usually 1 hour)
-- Use a GitHub token with higher rate limits
+- Wait for the rate limit to reset
+- Consider adding delays between requests if processing multiple projects
+- Check your GitLab instance's rate limit settings
 
-### Google Gemini API Errors
+### LLM Endpoint Errors
 
-If you encounter Gemini API errors:
-- Check that `GOOGLE_API_KEY` is correctly set in `.env`
-- Ensure your API key is valid and active in Google AI Studio
-- Check that you haven't exceeded your API quota
-- Visit https://aistudio.google.com/ to verify your API key status
+If you encounter LiteLLM endpoint errors:
+- Verify you have access to `https://litellm-staging.gopay.sh`
+- Check that the models `openai/gpt-oss-120b` and `GoToCompany/Llama-Sahabat-AI-v2-70B-IT-awq-4bit` are available
+- Ensure your network can reach the endpoint
 
-### MCP Configuration Issues
+### Project Not Found
 
-The MCP configuration is primarily for reference. The current implementation uses direct GitHub API access through the `requests` library for simplicity and reliability.
+If you get "project not found" errors:
+- Verify the project path format: `namespace/subgroup/project`
+- URL-encode special characters if needed
+- Ensure your token has access to the project (check project visibility)
 
 ## License
 
@@ -242,5 +250,6 @@ Contributions are welcome! Feel free to submit issues or pull requests.
 ## Resources
 
 - [CrewAI Documentation](https://docs.crewai.com/)
-- [Model Context Protocol](https://modelcontextprotocol.io/)
-- [GitHub API Documentation](https://docs.github.com/en/rest)
+- [GitLab REST API Documentation](https://docs.gitlab.com/ee/api/rest/)
+- [GitLab Projects API](https://docs.gitlab.com/ee/api/projects.html)
+- [GitLab Repository API](https://docs.gitlab.com/ee/api/repositories.html)

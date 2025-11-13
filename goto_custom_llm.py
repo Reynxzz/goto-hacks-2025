@@ -18,7 +18,8 @@ class GoToCustomLLM(BaseLLM):
         endpoint: str = "https://litellm-staging.gopay.sh",
         temperature: float = 0.6,
         max_tokens: Optional[int] = None,
-        timeout: int = 300
+        timeout: int = 300,
+        supports_tools: bool = False
     ):
         """
         Initialize the GoToCompany custom LLM.
@@ -29,6 +30,7 @@ class GoToCustomLLM(BaseLLM):
             temperature: Sampling temperature (0.0-1.0)
             max_tokens: Maximum tokens to generate
             timeout: Request timeout in seconds
+            supports_tools: Whether this model supports function/tool calling
         """
         # Must call super().__init__() with required parameters
         super().__init__(model=model, temperature=temperature)
@@ -36,6 +38,7 @@ class GoToCustomLLM(BaseLLM):
         self.endpoint = endpoint.rstrip('/')
         self.max_tokens = max_tokens
         self.timeout = timeout
+        self._supports_tools = supports_tools
 
     def call(
         self,
@@ -105,7 +108,7 @@ class GoToCustomLLM(BaseLLM):
 
     def supports_function_calling(self) -> bool:
         """Indicate whether this LLM supports function/tool calling."""
-        return False  # Set to True if your endpoint supports function calling
+        return self._supports_tools
 
     def supports_stop_words(self) -> bool:
         """Indicate whether this LLM supports stop sequences."""

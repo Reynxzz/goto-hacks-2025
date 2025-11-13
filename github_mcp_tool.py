@@ -1,58 +1,52 @@
-"""GitHub MCP Tool for CrewAI"""
+"""GitLab MCP Tool for CrewAI"""
 import os
-import subprocess
 import json
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, Type
+from urllib.parse import quote_plus
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 
 
-class GitHubMCPToolSchema(BaseModel):
-    """Input schema for GitHubMCPTool."""
-    repo: str = Field(..., description="Repository in format 'owner/repo'")
+class GitLabMCPToolSchema(BaseModel):
+    """Input schema for GitLabMCPTool."""
+    project: str = Field(..., description="Project in format 'namespace/project' or project ID")
 
 
-class GitHubMCPTool(BaseTool):
-    name: str = "GitHub Repository Analyzer"
+class GitLabMCPTool(BaseTool):
+    name: str = "GitLab Project Analyzer"
     description: str = (
-        "Analyzes GitHub repositories to extract information about code structure, "
-        "files, commits, and issues. Useful for generating comprehensive documentation. "
-        "Input should be the repository owner and name in format 'owner/repo'."
+        "Analyzes GitLab projects to extract information about code structure, "
+        "files, commits, and merge requests. Useful for generating comprehensive documentation. "
+        "Input should be the project namespace and name in format 'namespace/project'."
     )
-    args_schema: Type[BaseModel] = GitHubMCPToolSchema
+    args_schema: Type[BaseModel] = GitLabMCPToolSchema
 
-    def _run(self, repo: str) -> str:
+    def _run(self, project: str) -> str:
         """
-        Fetch repository information using MCP GitHub server
+        Fetch project information using GitLab REST API
 
         Args:
-            repo: Repository in format 'owner/repo'
+            project: Project in format 'namespace/project' or project ID
 
         Returns:
-            JSON string with repository information
+            JSON string with project information
         """
         try:
-            # Parse owner and repo
-            if '/' not in repo:
-                return json.dumps({"error": "Repository must be in format 'owner/repo'"})
-
-            owner, repo_name = repo.split('/', 1)
-
-            # Get repository information
-            repo_info = self._get_repo_info(owner, repo_name)
+            # Get project information
+            project_info = self._get_project_info(project)
 
             # Get file structure
-            file_structure = self._get_file_structure(owner, repo_name)
+            file_structure = self._get_file_structure(project)
 
             # Get recent commits (limited)
-            commits = self._get_recent_commits(owner, repo_name, limit=5)
+            commits = self._get_recent_commits(project, limit=5)
 
             # Get README
-            readme = self._get_readme(owner, repo_name)
+            readme = self._get_readme(project)
 
             result = {
-                "repository": repo,
-                "info": repo_info,
+                "project": project,
+                "info": project_info,
                 "file_structure": file_structure,
                 "recent_commits": commits,
                 "readme": readme
@@ -63,50 +57,67 @@ class GitHubMCPTool(BaseTool):
         except Exception as e:
             return json.dumps({"error": str(e)})
 
-    def _get_repo_info(self, owner: str, repo: str) -> Dict[str, Any]:
-        """Get basic repository information"""
+    def _get_project_info(self, project: str) -> Dict[str, Any]:
+        """Get basic project information"""
         try:
-            # Use GitHub API through requests
             import requests
-            token = os.getenv('GITHUB_TOKEN', '')
-            headers = {'Authorization': f'token {token}'} if token else {}
+
+            gitlab_url = os.getenv('GITLAB_URL', 'https://source.golabs.io')
+            token = os.getenv('GITLAB_TOKEN', '')
+
+            if not token:
+                return {"error": "GITLAB_TOKEN not set in environment"}
+
+            headers = {'PRIVATE-TOKEN': token}
+
+            # URL encode the project path
+            project_encoded = quote_plus(project)
 
             response = requests.get(
-                f'https://api.github.com/repos/{owner}/{repo}',
+                f'{gitlab_url}/api/v4/projects/{project_encoded}',
                 headers=headers
             )
 
             if response.status_code == 200:
                 data = response.json()
                 return {
+                    "id": data.get("id"),
                     "name": data.get("name"),
-                    "full_name": data.get("full_name"),
+                    "path": data.get("path"),
+                    "path_with_namespace": data.get("path_with_namespace"),
                     "description": data.get("description"),
-                    "language": data.get("language"),
-                    "stars": data.get("stargazers_count"),
-                    "forks": data.get("forks_count"),
-                    "open_issues": data.get("open_issues_count"),
+                    "default_branch": data.get("default_branch"),
+                    "visibility": data.get("visibility"),
+                    "star_count": data.get("star_count"),
+                    "forks_count": data.get("forks_count"),
+                    "open_issues_count": data.get("open_issues_count"),
                     "topics": data.get("topics", []),
                     "created_at": data.get("created_at"),
-                    "updated_at": data.get("updated_at"),
-                    "homepage": data.get("homepage"),
+                    "last_activity_at": data.get("last_activity_at"),
+                    "web_url": data.get("web_url"),
+                    "readme_url": data.get("readme_url"),
                     "license": data.get("license", {}).get("name") if data.get("license") else None
                 }
             else:
-                return {"error": f"Failed to fetch repo info: {response.status_code}"}
+                return {"error": f"Failed to fetch project info: {response.status_code} - {response.text}"}
         except Exception as e:
             return {"error": str(e)}
 
-    def _get_file_structure(self, owner: str, repo: str, path: str = "") -> Dict[str, Any]:
-        """Get repository file structure"""
+    def _get_file_structure(self, project: str, path: str = "") -> Dict[str, Any]:
+        """Get project file structure"""
         try:
             import requests
-            token = os.getenv('GITHUB_TOKEN', '')
-            headers = {'Authorization': f'token {token}'} if token else {}
+
+            gitlab_url = os.getenv('GITLAB_URL', 'https://source.golabs.io')
+            token = os.getenv('GITLAB_TOKEN', '')
+            headers = {'PRIVATE-TOKEN': token}
+
+            project_encoded = quote_plus(project)
 
             response = requests.get(
-                f'https://api.github.com/repos/{owner}/{repo}/contents/{path}',
-                headers=headers
+                f'{gitlab_url}/api/v4/projects/{project_encoded}/repository/tree',
+                headers=headers,
+                params={'path': path, 'per_page': 20}
             )
 
             if response.status_code == 200:
@@ -117,7 +128,7 @@ class GitHubMCPTool(BaseTool):
                         "name": item.get("name"),
                         "path": item.get("path"),
                         "type": item.get("type"),
-                        "size": item.get("size")
+                        "mode": item.get("mode")
                     })
                 return {"files": structure}
             else:
@@ -125,16 +136,21 @@ class GitHubMCPTool(BaseTool):
         except Exception as e:
             return {"error": str(e)}
 
-    def _get_recent_commits(self, owner: str, repo: str, limit: int = 5) -> list:
+    def _get_recent_commits(self, project: str, limit: int = 5) -> list:
         """Get recent commits"""
         try:
             import requests
-            token = os.getenv('GITHUB_TOKEN', '')
-            headers = {'Authorization': f'token {token}'} if token else {}
+
+            gitlab_url = os.getenv('GITLAB_URL', 'https://source.golabs.io')
+            token = os.getenv('GITLAB_TOKEN', '')
+            headers = {'PRIVATE-TOKEN': token}
+
+            project_encoded = quote_plus(project)
 
             response = requests.get(
-                f'https://api.github.com/repos/{owner}/{repo}/commits?per_page={limit}',
-                headers=headers
+                f'{gitlab_url}/api/v4/projects/{project_encoded}/repository/commits',
+                headers=headers,
+                params={'per_page': limit}
             )
 
             if response.status_code == 200:
@@ -142,10 +158,13 @@ class GitHubMCPTool(BaseTool):
                 commits = []
                 for commit in data:
                     commits.append({
-                        "sha": commit.get("sha", "")[:7],
-                        "message": commit.get("commit", {}).get("message", ""),
-                        "author": commit.get("commit", {}).get("author", {}).get("name", ""),
-                        "date": commit.get("commit", {}).get("author", {}).get("date", "")
+                        "id": commit.get("id", "")[:7],
+                        "short_id": commit.get("short_id", ""),
+                        "title": commit.get("title", ""),
+                        "message": commit.get("message", ""),
+                        "author_name": commit.get("author_name", ""),
+                        "authored_date": commit.get("authored_date", ""),
+                        "web_url": commit.get("web_url", "")
                     })
                 return commits
             else:
@@ -153,25 +172,41 @@ class GitHubMCPTool(BaseTool):
         except Exception as e:
             return [{"error": str(e)}]
 
-    def _get_readme(self, owner: str, repo: str) -> str:
-        """Get repository README"""
+    def _get_readme(self, project: str) -> str:
+        """Get project README"""
         try:
             import requests
-            token = os.getenv('GITHUB_TOKEN', '')
-            headers = {
-                'Authorization': f'token {token}',
-                'Accept': 'application/vnd.github.v3.raw'
-            } if token else {'Accept': 'application/vnd.github.v3.raw'}
 
-            response = requests.get(
-                f'https://api.github.com/repos/{owner}/{repo}/readme',
-                headers=headers
-            )
+            gitlab_url = os.getenv('GITLAB_URL', 'https://source.golabs.io')
+            token = os.getenv('GITLAB_TOKEN', '')
+            headers = {'PRIVATE-TOKEN': token}
 
-            if response.status_code == 200:
-                # Limit README to first 1000 characters
-                return response.text[:1000] + ("..." if len(response.text) > 1000 else "")
-            else:
-                return f"README not found or inaccessible"
+            project_encoded = quote_plus(project)
+
+            # Try common README filenames
+            readme_filenames = ['README.md', 'README', 'readme.md', 'Readme.md']
+
+            for filename in readme_filenames:
+                file_encoded = quote_plus(filename)
+                response = requests.get(
+                    f'{gitlab_url}/api/v4/projects/{project_encoded}/repository/files/{file_encoded}/raw',
+                    headers=headers,
+                    params={'ref': 'main'}  # Try main branch first
+                )
+
+                if response.status_code == 200:
+                    # Limit README to first 1000 characters
+                    return response.text[:1000] + ("..." if len(response.text) > 1000 else "")
+                elif response.status_code == 404:
+                    # Try master branch
+                    response = requests.get(
+                        f'{gitlab_url}/api/v4/projects/{project_encoded}/repository/files/{file_encoded}/raw',
+                        headers=headers,
+                        params={'ref': 'master'}
+                    )
+                    if response.status_code == 200:
+                        return response.text[:1000] + ("..." if len(response.text) > 1000 else "")
+
+            return "README not found or inaccessible"
         except Exception as e:
             return f"Error fetching README: {str(e)}"
